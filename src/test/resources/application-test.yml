@@ -1,0 +1,20 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/logmonitor_test
+    username: test
+    password: test
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  flyway:
+    enabled: false
+
+log-monitor:
+  jwt:
+    secret: test-jwt-secret-key-minimum-32-characters-long
+    expiration-ms: 3600000
+  ssh:
+    known-hosts-path: ${SSH_KNOWN_HOSTS_PATH:}
+  encryption:
+    secret-key: test-encryption-key-32chars-min
