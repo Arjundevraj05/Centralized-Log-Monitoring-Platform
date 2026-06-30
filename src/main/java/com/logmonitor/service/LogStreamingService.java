@@ -17,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -29,8 +30,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class LogStreamingService {
 
     private static final Logger log = LoggerFactory.getLogger(LogStreamingService.class);
+    private static final AtomicInteger STREAM_THREAD_COUNTER = new AtomicInteger();
 
     private final LogService logService;
+    private final AppLogService appLogService;
     private final SSHService sshService;
     private final SimpMessagingTemplate messagingTemplate;
     private final ExecutorService streamExecutor;
@@ -38,14 +41,16 @@ public class LogStreamingService {
     private final ConcurrentHashMap<String, Set<String>> stompSessionStreams = new ConcurrentHashMap<>();
 
     public LogStreamingService(LogService logService,
+                               AppLogService appLogService,
                                SSHService sshService,
                                SimpMessagingTemplate messagingTemplate) {
         this.logService = logService;
+        this.appLogService = appLogService;
         this.sshService = sshService;
         this.messagingTemplate = messagingTemplate;
         this.streamExecutor = Executors.newCachedThreadPool(r -> {
             Thread thread = new Thread(r);
-            thread.setName("log-stream-" + thread.threadId());
+            thread.setName("log-stream-" + STREAM_THREAD_COUNTER.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         });
@@ -78,6 +83,32 @@ public class LogStreamingService {
 
         log.info("Started log stream: streamId={}, serverId={}, commandKey={}, user={}",
                 streamId, serverId, commandKey, username);
+    }
+
+    /**
+     * Starts live tail of an application log using a cached logback path.
+     */
+    public void startAppLogStream(String stompSessionId, String streamId, Long logConfigId) {
+        if (activeStreams.containsKey(streamId)) {
+            stopStream(streamId);
+        }
+
+        String username = SecurityUtils.getCurrentUsernameOrDefault("SYSTEM");
+        String command = appLogService.resolveLiveStreamCommand(logConfigId);
+        Long serverId = appLogService.resolveServerId(logConfigId);
+        String commandKey = "APP_LOG_LIVE:" + logConfigId;
+
+        StreamSession session = new StreamSession(stompSessionId, streamId, serverId, commandKey);
+        activeStreams.put(streamId, session);
+        stompSessionStreams
+                .computeIfAbsent(stompSessionId, key -> ConcurrentHashMap.newKeySet())
+                .add(streamId);
+
+        Future<?> future = streamExecutor.submit(() -> runStream(session, command, username));
+        session.setFuture(future);
+
+        log.info("Started app log stream: streamId={}, logConfigId={}, user={}",
+                streamId, logConfigId, username);
     }
 
     /**

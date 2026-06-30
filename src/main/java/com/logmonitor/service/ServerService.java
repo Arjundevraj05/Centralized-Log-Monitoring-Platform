@@ -146,11 +146,11 @@ public class ServerService {
     }
 
     private Server mapRequestToEntity(Server server, ServerRequest request) {
-        server.setServerName(request.getServerName());
-        server.setHost(request.getHost());
+        server.setServerName(request.getServerName().trim());
+        server.setHost(request.getHost().trim());
         server.setPort(request.getPort());
-        server.setUsername(request.getUsername());
-        server.setEnvironment(request.getEnvironment());
+        server.setUsername(request.getUsername().trim());
+        server.setEnvironment(request.getEnvironment().trim());
         server.setActive(Boolean.TRUE.equals(request.getActive()));
         return server;
     }

@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: logmonitor-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: logmonitor
+      POSTGRES_USER: logmonitor
+      POSTGRES_PASSWORD: logmonitor
+    volumes:
+      - logmonitor_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U logmonitor -d logmonitor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  logmonitor_pgdata:

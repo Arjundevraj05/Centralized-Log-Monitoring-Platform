@@ -16,6 +16,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfigurationSource;
 
 /**
  * Spring Security configuration with JWT authentication and role-based access control.
@@ -36,15 +37,18 @@ public class SecurityConfig {
     private final JwtAuthenticationEntryPoint authenticationEntryPoint;
     private final JwtAccessDeniedHandler accessDeniedHandler;
     private final CustomUserDetailsService userDetailsService;
+    private final CorsConfigurationSource corsConfigurationSource;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
                           JwtAuthenticationEntryPoint authenticationEntryPoint,
                           JwtAccessDeniedHandler accessDeniedHandler,
-                          CustomUserDetailsService userDetailsService) {
+                          CustomUserDetailsService userDetailsService,
+                          CorsConfigurationSource corsConfigurationSource) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.authenticationEntryPoint = authenticationEntryPoint;
         this.accessDeniedHandler = accessDeniedHandler;
         this.userDetailsService = userDetailsService;
+        this.corsConfigurationSource = corsConfigurationSource;
     }
 
     /**
@@ -57,6 +61,7 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+                .cors(cors -> cors.configurationSource(corsConfigurationSource))
                 .csrf(AbstractHttpConfigurer::disable)
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -83,8 +88,15 @@ public class SecurityConfig {
                         // Log operations — SUPPORT cannot search
                         .requestMatchers(HttpMethod.POST, "/api/logs/search")
                                 .hasAnyRole("ADMIN", "DEV")
-                        .requestMatchers("/api/logs/**", "/api/log-types", "/api/log-types/**")
+                        .requestMatchers("/api/logs/**", "/api/log-types", "/api/log-types/**",
+                                "/api/app-logs/**")
                                 .hasAnyRole("ADMIN", "DEV", "SUPPORT")
+
+                        // Tomcat discovery on servers
+                        .requestMatchers(HttpMethod.GET, "/api/servers/*/tomcat/**")
+                                .hasAnyRole("ADMIN", "DEV", "SUPPORT")
+                        .requestMatchers("/api/servers/*/tomcat/**")
+                                .hasAnyRole("ADMIN", "DEV")
 
                         // Audit trail — ADMIN only
                         .requestMatchers("/api/audit", "/api/audit/**")

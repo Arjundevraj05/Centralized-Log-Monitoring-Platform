@@ -1,6 +1,6 @@
 # Centralized Log Monitoring Platform
 
-Production-ready Spring Boot backend for securely fetching, searching, and streaming logs from remote Linux/Tomcat servers over SSH. Designed to pair with a React frontend (not included in this repository).
+Production-ready log monitoring platform for **Paytm** infrastructure — securely fetch, search, and stream logs from remote Linux/Tomcat servers over SSH. Includes a Paytm-branded React frontend and Spring Boot backend.
 
 ## Features
 
@@ -29,6 +29,17 @@ Production-ready Spring Boot backend for securely fetching, searching, and strea
 | Build | Maven |
 | Tests | JUnit 5, Mockito |
 
+### Frontend (`frontend/`)
+
+| Layer | Technology |
+|-------|------------|
+| Framework | React 18 + TypeScript |
+| Build | Vite 5 |
+| Routing | React Router 6 |
+| HTTP | Axios |
+| WebSocket | @stomp/stompjs |
+| Icons | Lucide React |
+
 ## Architecture
 
 ```
@@ -56,7 +67,31 @@ Controller → Service → Repository / SSH Gateway
 
 ## Quick Start (Local)
 
-### 1. Create the database
+### 1. Start PostgreSQL
+
+The backend **requires PostgreSQL on `localhost:5432`** before startup. If you see `Connection to localhost:5432 refused`, the database is not running.
+
+**Option A — Docker (recommended)**
+
+```powershell
+docker compose up -d
+```
+
+Or use the helper script (checks port, starts Compose, waits until ready):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-db.ps1
+```
+
+Default credentials match `application.yml` (`local` profile): database `logmonitor`, user `logmonitor`, password `logmonitor`.
+
+**Option B — Local PostgreSQL install**
+
+```powershell
+winget install PostgreSQL.PostgreSQL.17
+```
+
+Then create the database:
 
 ```sql
 CREATE DATABASE logmonitor;
@@ -84,23 +119,60 @@ Key variables:
 
 The `local` profile provides defaults for JWT and encryption secrets if they are not set.
 
-### 3. Build and run
+### 3. Build and run the backend
+
+Maven is **not required globally**. Use the project wrapper (downloads Maven to `.tools/` on first setup):
 
 ```powershell
-cd Paytm
-mvn clean package -DskipTests
-mvn spring-boot:run
+# One-time: install local Maven
+powershell -ExecutionPolicy Bypass -File scripts\setup-tools.ps1
+
+# Start PostgreSQL (if not already running)
+docker compose up -d
+
+# Start backend (fails fast if port 5432 is closed)
+powershell -ExecutionPolicy Bypass -File scripts\run-backend.ps1
 ```
 
-Or run the JAR:
+Or without the helper script:
 
 ```powershell
-java -jar target/log-monitor-1.0.0-SNAPSHOT.jar
+.\mvnw.cmd spring-boot:run
+```
+
+If you already have Maven on PATH: `mvn spring-boot:run`
+
+Or run the JAR after building:
+
+```powershell
+.\mvnw.cmd clean package -DskipTests
+java -jar target\log-monitor-1.0.0-SNAPSHOT.jar
 ```
 
 The API starts at **http://localhost:8080**.
 
-### 4. Default admin user (local/dev only)
+### 5. Start the frontend
+
+The frontend lives in the **`frontend/`** folder (not the repo root). Either:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Or from the repo root:
+
+```powershell
+npm run install:frontend
+npm run dev
+```
+
+Open **http://localhost:5173** — the Vite dev server proxies `/api` and `/ws` to the backend.
+
+Default login: `admin` / `Admin@123`
+
+### 5. Default admin user (local/dev only)
 
 On first startup with an empty `users` table, a default admin is seeded:
 
@@ -111,6 +183,157 @@ On first startup with an empty `users` table, a default admin is seeded:
 | Email | `admin@logmonitor.local` |
 
 Change this password immediately in any shared environment.
+
+## Local testing with WSL + Tomcat (Option A)
+
+Use WSL Ubuntu as a real Linux SSH target with Tomcat logs — no cloud VM required.
+
+### Prerequisites
+
+- Windows 10/11 with WSL2
+- PostgreSQL running locally (see Quick Start above)
+- Admin access once, to install WSL
+
+### Step 1 — Install WSL Ubuntu (one time)
+
+Open **PowerShell as Administrator**:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Restart your PC when prompted. Open **Ubuntu** from the Start menu and create your Linux username.
+
+### Step 2 — Run the setup script
+
+From the project root in a normal PowerShell window:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup-wsl-tomcat.ps1
+```
+
+This inside WSL will:
+
+- Install Java 17, Tomcat (`tomcat10` on Ubuntu 24+, `tomcat9` on older releases), and OpenSSH
+- Symlink logs to `/var/log/tomcat/` (paths the app expects)
+- Generate an SSH key at `~/.ssh/logmonitor`
+- Copy the private key to `.wsl-keys/logmonitor` and add the host to `known_hosts`
+
+At the end it prints the **WSL IP**, **username**, and key path for the UI.
+
+### Step 3 — Start the backend
+
+```powershell
+$env:SSH_KNOWN_HOSTS_PATH = "$env:USERPROFILE\.ssh\known_hosts"
+.\mvnw.cmd spring-boot:run
+```
+
+### Step 4 — Register the server in the UI
+
+Open http://localhost:5173 → **Servers** → **Add Server**:
+
+| Field | Value |
+|-------|--------|
+| Server name | `local-tomcat-wsl` |
+| Host | WSL IP from setup script (e.g. `172.x.x.x`) |
+| Port | `22` |
+| Username | Your WSL username |
+| Private key | Paste contents of `.wsl-keys\logmonitor` |
+| Environment | `local` |
+
+### Step 5 — Test logs
+
+**Log Explorer** → server `local-tomcat-wsl`:
+
+| Tab | Command key | What to expect |
+|-----|-------------|----------------|
+| Fetch | `Tomcat Catalina Log` | Last lines of `catalina.out` |
+| Search | `ERROR` or `INFO` | Matching grep results |
+| Stream | `Tomcat Catalina Tail` | Live `tail -f` output |
+
+Generate more Tomcat traffic from WSL:
+
+```bash
+curl http://127.0.0.1:8080/
+```
+
+### Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| WSL IP changed after reboot | Re-run `wsl hostname -I` and update the server host in the UI |
+| `SSH known_hosts path is not configured` | Set `SSH_KNOWN_HOSTS_PATH` before starting the backend |
+| Empty access log | Hit Tomcat in WSL with `curl`; access log file is created on first request |
+| `Port 8080 was already in use` | WSL Tomcat defaults to 8080 — run `wsl -u root bash scripts/wsl/setup-tomcat.sh root` to move it to **8081**, or stop Tomcat: `wsl sudo service tomcat10 stop` |
+| `sudo: timed out` | Run from Ubuntu instead: `sudo bash scripts/wsl/setup-tomcat.sh root` then `bash scripts/wsl/setup-tomcat.sh user` |
+| `Failed to connect` / auth errors with correct host & key | Backend uses **SSHJ**, which cannot parse `BEGIN OPENSSH PRIVATE KEY` (ed25519). Re-run `scripts\setup-wsl-tomcat.ps1` or regenerate: `ssh-keygen -t rsa -b 4096 -m PEM -f ~/.ssh/logmonitor -N ""` then re-paste the key in the UI |
+| `Command exited with status 1` on Tomcat Error Log | Tomcat 10 may not create `localhost.log`. Re-run root setup: `wsl -u root bash scripts/wsl/setup-tomcat.sh root` — it symlinks error log to `catalina.out` when needed |
+| `Connection timed out` to WSL IP | SSH is not running in WSL. Run: `wsl -u root systemctl start ssh` and `wsl -u root systemctl enable ssh` |
+
+## Phase 2 — Application-wise logs (Tomcat + logback)
+
+Browse logs per deployed application using paths from each app's `logback.xml`.
+
+### Flow
+
+1. **Servers** — register the SSH host (unchanged).
+2. **Application Logs** (`/app-logs`) — select server → **Discover Tomcat** (`~/local/apache-tomcat-*`).
+3. Select a Tomcat instance → **Discover applications** (`webapps/`).
+4. Select an app → **Load logback.xml** (reads `WEB-INF/classes/logback.xml`, caches paths in DB).
+5. View logs:
+   | Mode | SSH command (whitelisted) |
+   |------|----------------------------|
+   | **Current** | `tail -n 5000` on active log file |
+   | **Date-wise** | `zcat` + `tail` on archived file from rolling pattern |
+   | **Live** | `tail -f` via WebSocket |
+
+### Server layout expected
+
+Tomcat must live under the SSH user's home:
+
+```
+/home/<user>/local/apache-tomcat-9.0.85/
+  webapps/
+    myapp/
+      WEB-INF/classes/logback.xml
+```
+
+`logback.xml` must define a `<file>` path (and optionally `<fileNamePattern>` for date archives).
+
+### API endpoints
+
+| Method | Path | Role |
+|--------|------|------|
+| GET | `/api/servers/{id}/tomcat/instances` | All |
+| POST | `/api/servers/{id}/tomcat/instances/discover` | ADMIN, DEV |
+| GET/POST | `.../instances/{id}/applications` | All / discover: ADMIN, DEV |
+| POST | `.../applications/{id}/log-config/cache` | ADMIN, DEV |
+| POST | `/api/app-logs/fetch` | All |
+| WS | `/app/logs/stream/app/start` | All |
+
+Paths are never taken from the client — only from cached logback parsing after validation.
+
+## Frontend UI
+
+The Paytm-branded React app (`frontend/`) provides:
+
+| Page | Path | Access |
+|------|------|--------|
+| Login | `/login` | Public |
+| Dashboard | `/` | All roles |
+| Servers | `/servers` | View: all · Manage: ADMIN |
+| Log Explorer | `/logs` | Fetch/stream: all · Search: ADMIN, DEV |
+| Application Logs | `/app-logs` | Tomcat → app → logback logs: all · Discover: ADMIN, DEV |
+| Audit Trail | `/audit` | ADMIN only |
+
+**Production build:**
+
+```powershell
+cd frontend
+npm run build
+```
+
+Serve the `frontend/dist/` folder via any static host. Set `CORS_ALLOWED_ORIGINS` on the backend to your frontend URL.
 
 ## API Documentation
 
@@ -371,26 +594,27 @@ Unit tests cover JWT, services, controllers, and security rules. The full Spring
 ## Project Structure
 
 ```
-src/main/java/com/logmonitor/
-├── auth/           # Login controller and service
-├── audit/          # Audit service and AOP
-├── config/         # Spring, WebSocket, OpenAPI config
-├── controller/     # REST controllers
-├── dto/            # Request/response objects
-├── entity/         # JPA entities
-├── exception/      # Global exception handler
-├── mapper/         # Entity ↔ DTO mappers
-├── repository/     # Spring Data JPA
-├── security/       # JWT and Spring Security
-├── service/        # Business logic
-├── ssh/            # SSH gateway (SSHJ)
-├── util/           # Encryption, security helpers
-└── websocket/      # STOMP streaming
-
-src/main/resources/
-├── application.yml
-├── logback-spring.xml
-└── db/migration/   # Flyway scripts (V1, V2, ...)
+Paytm/
+├── frontend/                 # React + TypeScript UI (Vite)
+│   └── src/
+│       ├── api/              # Axios HTTP client
+│       ├── components/       # Layout, routing
+│       ├── context/          # Auth context
+│       ├── hooks/            # WebSocket streaming hook
+│       ├── pages/            # Login, Dashboard, Servers, Logs, Audit
+│       └── types/
+├── src/main/java/com/logmonitor/
+│   ├── auth/                 # Login controller and service
+│   ├── audit/                # Audit service and AOP
+│   ├── config/               # Spring, WebSocket, CORS, OpenAPI
+│   ├── controller/           # REST controllers
+│   ├── service/              # Business logic
+│   ├── ssh/                  # SSH gateway (SSHJ)
+│   └── websocket/            # STOMP streaming
+├── src/main/resources/
+│   ├── application.yml
+│   └── db/migration/         # Flyway scripts
+└── pom.xml
 ```
 
 ## Troubleshooting
@@ -400,8 +624,9 @@ src/main/resources/
 | `SSH known_hosts path is not configured` | Set `SSH_KNOWN_HOSTS_PATH` to a valid file path |
 | `SSH known_hosts file not found` | Create the file or SSH once manually to populate it |
 | `Command key is not whitelisted` | Use a key from `/api/log-types` or `log_config` table |
-| `Failed to connect after N attempts` | Check host, port, firewall, and SSH key |
-| Flyway migration fails | Ensure PostgreSQL is running and credentials match |
+| `Failed to connect after N attempts` | Check host, port, firewall, and SSH key. If the key starts with `BEGIN OPENSSH PRIVATE KEY`, regenerate RSA PEM (`ssh-keygen -t rsa -b 4096 -m PEM`) |
+| `mvn` not recognized | Use `.\mvnw.cmd` instead, or run `scripts\setup-tools.ps1` |
+| `npm install` fails at repo root | Run from `frontend/` or use `npm run install:frontend` |
 | 401 on all requests | Login again; check `JWT_SECRET` has not changed |
 
 ## License

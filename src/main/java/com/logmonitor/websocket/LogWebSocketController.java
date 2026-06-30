@@ -1,5 +1,6 @@
 package com.logmonitor.websocket;
 
+import com.logmonitor.dto.AppLogStreamRequest;
 import com.logmonitor.dto.LogStreamRequest;
 import com.logmonitor.dto.LogStreamStopRequest;
 import com.logmonitor.service.LogStreamingService;
@@ -48,6 +49,18 @@ public class LogWebSocketController {
                 request.getServerId(),
                 request.getCommandKey()
         );
+    }
+
+    @MessageMapping("/logs/stream/app/start")
+    public void startAppLogStream(@Valid @Payload AppLogStreamRequest request,
+                                  SimpMessageHeaderAccessor headerAccessor) {
+        String stompSessionId = headerAccessor.getSessionId();
+        String streamId = request.getStreamId() != null ? request.getStreamId() : stompSessionId;
+
+        log.debug("WebSocket app log stream start: stompSession={}, streamId={}, logConfigId={}",
+                stompSessionId, streamId, request.getLogConfigId());
+
+        logStreamingService.startAppLogStream(stompSessionId, streamId, request.getLogConfigId());
     }
 
     /**

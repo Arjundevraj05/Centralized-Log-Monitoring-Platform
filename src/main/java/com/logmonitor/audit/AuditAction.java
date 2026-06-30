@@ -10,7 +10,10 @@ public enum AuditAction {
     LOG_SEARCH("Log search"),
     SERVER_CREATE("Server creation"),
     SERVER_UPDATE("Server update"),
-    SERVER_DELETE("Server deletion");
+    SERVER_DELETE("Server deletion"),
+    TOMCAT_DISCOVER("Tomcat discovery"),
+    APP_LOG_CONFIG_CACHE("Application logback cache"),
+    APP_LOG_FETCH("Application log fetch");
 
     private final String description;
 

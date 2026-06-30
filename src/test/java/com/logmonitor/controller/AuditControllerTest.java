@@ -2,6 +2,7 @@ package com.logmonitor.controller;
 
 import com.logmonitor.audit.AuditService;
 import com.logmonitor.entity.AuditLog;
+import com.logmonitor.config.CorsConfig;
 import com.logmonitor.exception.GlobalExceptionHandler;
 import com.logmonitor.mapper.AuditLogMapper;
 import com.logmonitor.security.CustomUserDetailsService;
@@ -32,7 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Web layer tests for {@link AuditController}.
  */
 @WebMvcTest(controllers = AuditController.class)
-@Import({GlobalExceptionHandler.class, AuditLogMapper.class, SecurityConfig.class,
+@Import({GlobalExceptionHandler.class, AuditLogMapper.class, SecurityConfig.class, CorsConfig.class,
         JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class})
 class AuditControllerTest {
 

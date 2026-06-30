@@ -18,6 +18,7 @@ import org.springframework.util.StringUtils;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
@@ -68,8 +69,7 @@ public class SSHService {
         }
 
         throw new SshOperationException(
-                "Failed to connect to " + params.host() + ":" + params.port() + " after "
-                        + maxRetries + " attempts",
+                buildConnectFailureMessage(params, maxRetries, lastException),
                 lastException
         );
     }
@@ -89,14 +89,19 @@ public class SSHService {
             Session session = connection.getClient().startSession();
             try (session) {
                 Command cmd = session.exec(command);
-                String output = readStream(cmd);
+                String output = readStream(cmd.getInputStream());
+                String stderr = readStream(cmd.getErrorStream());
                 cmd.join(sshProperties.getCommandTimeoutMs(), TimeUnit.MILLISECONDS);
 
                 Integer exitStatus = cmd.getExitStatus();
                 if (exitStatus != null && exitStatus != 0) {
+                    String detail = stderr.isBlank()
+                            ? "Remote command failed (exit " + exitStatus + ")"
+                            : stderr.trim();
                     throw new SshOperationException(
                             "Command exited with status " + exitStatus + " on "
                                     + connection.getHost() + ":" + connection.getPort()
+                                    + ": " + detail
                     );
                 }
                 return output;
@@ -214,17 +219,58 @@ public class SSHService {
             OpenSSHKeyFile openSshKey = new OpenSSHKeyFile();
             openSshKey.init(new StringReader(privateKeyPem));
             return openSshKey;
-        } catch (IOException openSshFailure) {
-            PKCS8KeyFile pkcs8Key = new PKCS8KeyFile();
-            pkcs8Key.init(new StringReader(privateKeyPem));
-            return pkcs8Key;
+        } catch (Exception openSshFailure) {
+            try {
+                PKCS8KeyFile pkcs8Key = new PKCS8KeyFile();
+                pkcs8Key.init(new StringReader(privateKeyPem));
+                return pkcs8Key;
+            } catch (Exception pkcs8Failure) {
+                if (privateKeyPem.contains("BEGIN OPENSSH PRIVATE KEY")) {
+                    throw new IOException(
+                            "Unsupported OpenSSH private key format. Regenerate with RSA PEM "
+                                    + "(e.g. ssh-keygen -t rsa -b 4096 -m PEM -f ~/.ssh/logmonitor -N \"\")",
+                            pkcs8Failure
+                    );
+                }
+                throw new IOException("Invalid SSH private key", pkcs8Failure);
+            }
         }
     }
 
-    private String readStream(Command cmd) throws IOException {
+    private String buildConnectFailureMessage(
+            SshConnectionParams params, int maxRetries, IOException lastException) {
+
+        String detail = lastException != null ? lastException.getMessage() : "";
+        String cause = lastException != null && lastException.getCause() != null
+                ? lastException.getCause().getMessage()
+                : "";
+
+        if (containsIgnoreCase(detail, "Exhausted available authentication methods")
+                || containsIgnoreCase(cause, "Exhausted available authentication methods")) {
+            return "SSH authentication failed for " + params.username() + "@" + params.host() + ":"
+                    + params.port() + " after " + maxRetries
+                    + " attempts. Check username, private key format (use RSA PEM), and authorized_keys.";
+        }
+        if (containsIgnoreCase(detail, "OPENSSH PRIVATE KEY")
+                || containsIgnoreCase(cause, "OPENSSH PRIVATE KEY")) {
+            return "SSH private key uses OpenSSH format, which is not supported. "
+                    + "Regenerate with: ssh-keygen -t rsa -b 4096 -m PEM -f ~/.ssh/logmonitor -N \"\"";
+        }
+
+        return "Failed to connect to " + params.host() + ":" + params.port() + " after "
+                + maxRetries + " attempts"
+                + (StringUtils.hasText(detail) ? ": " + detail : "");
+    }
+
+    private boolean containsIgnoreCase(String haystack, String needle) {
+        return haystack != null && needle != null
+                && haystack.toLowerCase().contains(needle.toLowerCase());
+    }
+
+    private String readStream(InputStream stream) throws IOException {
         StringBuilder output = new StringBuilder();
         try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(cmd.getInputStream(), StandardCharsets.UTF_8))) {
+                new InputStreamReader(stream, StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (!output.isEmpty()) {

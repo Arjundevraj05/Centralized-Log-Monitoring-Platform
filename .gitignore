@@ -33,6 +33,14 @@ logs/
 *.pem
 *.key
 known_hosts
+.wsl-keys/
 
 # Docker
 docker-compose.override.yml
+
+# Local Maven (downloaded by scripts/setup-tools.ps1)
+.tools/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/

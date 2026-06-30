@@ -5,6 +5,7 @@ import com.logmonitor.dto.LogFetchRequest;
 import com.logmonitor.dto.LogResponse;
 import com.logmonitor.dto.LogSearchRequest;
 import com.logmonitor.dto.LogTypeResponse;
+import com.logmonitor.config.CorsConfig;
 import com.logmonitor.exception.GlobalExceptionHandler;
 import com.logmonitor.security.CustomUserDetailsService;
 import com.logmonitor.security.JwtAccessDeniedHandler;
@@ -34,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Web layer tests for {@link LogController}.
  */
 @WebMvcTest(controllers = LogController.class)
-@Import({GlobalExceptionHandler.class, SecurityConfig.class,
+@Import({GlobalExceptionHandler.class, SecurityConfig.class, CorsConfig.class,
         JwtAuthenticationEntryPoint.class, JwtAccessDeniedHandler.class})
 class LogControllerTest {
 

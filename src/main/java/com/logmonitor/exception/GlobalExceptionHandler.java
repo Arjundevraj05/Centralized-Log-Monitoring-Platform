@@ -120,6 +120,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({
             CommandNotWhitelistedException.class,
             InvalidSearchTermException.class,
+            InvalidLogPathException.class,
             IllegalArgumentException.class
     })
     public ResponseEntity<ApiErrorResponse> handleBadRequest(
